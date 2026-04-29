@@ -1,0 +1,98 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Главная{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <h1>Система рекомендаций</h1>
+    <p>Введите свои предпочтения, чтобы получить рекомендации.</p>
+
+    <form id="preference-form">
+        {% csrf_token %}
+        <div class="form-group">
+            <label for="user-select">Выберите пользователя:</label>
+            <select class="form-control" id="user-select" name="user_id">
+                {% for user in users %}
+                    <option value="{{ user.id }}">{{ user.username }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="item-select">Выберите элемент:</label>
+            <select class="form-control" id="item-select" name="item_id">
+                {% for item in items %}
+                    <option value="{{ item.id }}">{{ item.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="interaction-type">Тип взаимодействия:</label>
+            <select class="form-control" id="interaction-type" name="interaction_type">
+                <option value="view">Просмотр</option>
+                <option value="rate">Оценка</option>
+                <option value="purchase">Покупка</option>
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary mt-3">Добавить предпочтение</button>
+    </form>
+
+    <h2 class="mt-4">Ваши рекомендации:</h2>
+    <div id="recommendations-list">
+        <p>Нажмите кнопку, чтобы получить рекомендации.</p>
+    </div>
+</div>
+
+<script>
+document.getElementById('preference-form').onsubmit = async function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const response = await fetch("{% url 'add_user_preference' %}", {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': formData.get('csrfmiddlewaretoken') // Убедитесь, что CSRF токен передается
+        }
+    });
+    const result = await response.json();
+    alert(result.message || result.error);
+
+    // После добавления предпочтения, запрашиваем рекомендации
+    const userId = document.getElementById('user-select').value;
+    fetchRecommendations(userId);
+};
+
+async function fetchRecommendations(userId) {
+    const response = await fetch(`/api/recommendations/${userId}/`);
+    const data = await response.json();
+
+    const recommendationsDiv = document.getElementById('recommendations-list');
+    recommendationsDiv.innerHTML = ''; // Очистить предыдущие
+
+    if (data.recommendations && data.recommendations.length > 0) {
+        const ul = document.createElement('ul');
+        for (const itemId of data.recommendations) {
+            const li = document.createElement('li');
+            // Для отображения названия элемента, нужно будет сделать отдельный запрос или передать их
+            li.textContent = `Элемент ID: ${itemId}`; // Замените на actual item name
+            ul.appendChild(li);
+        }
+        recommendationsDiv.appendChild(ul);
+    } else {
+        recommendationsDiv.innerHTML = '<p>Нет доступных рекомендаций.</p>';
+    }
+}
+
+// Загружаем рекомендации при первой загрузке страницы (если пользователь выбран)
+document.addEventListener('DOMContentLoaded', () => {
+    const userId = document.getElementById('user-select').value;
+    if (userId) {
+        fetchRecommendations(userId);
+    }
+});
+
+document.getElementById('user-select').onchange = function() {
+    fetchRecommendations(this.value);
+};
+</script>
+{% endblock %}
