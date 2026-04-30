@@ -1,30 +1,25 @@
 from django.db import models
+from django.contrib.auth.models import User
 
-
-class User(models.Model):
-    username = models.CharField(max_length=100, unique=True)
-
-    def __str__(self):
-        return self.username
 
 class Item(models.Model):
-    name = models.CharField(max_length=200, unique=True)
-    description = models.TextField(blank=True)
+    name = models.CharField(max_length=200)
+    category = models.CharField(max_length=100)
 
     def __str__(self):
         return self.name
 
-class Interaction(models.Model):
-    objects = None
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    item = models.ForeignKey(Item, on_delete=models.CASCADE)
-    # Пример типов взаимодействий: 'view', 'rate', 'purchase'
-    interaction_type = models.CharField(max_length=50)
-    timestamp = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = ('user', 'item', 'interaction_type')
+class UserPreference(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='preferences')
+    item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name='user_preferences')
+    rating = models.IntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.user.username} - {self.item.name} ({self.interaction_type})"
+        return f"{self.user.username} - {self.item.name} ({self.rating})"
 
+class Recommendation(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)  # Используем User из auth
+    item = models.ForeignKey(Item, on_delete=models.CASCADE)
+    score = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)

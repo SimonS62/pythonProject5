@@ -1,7 +1,7 @@
 from django.core.cache import cache
 import json
 import networkx as nx
-from .models import User, Item, Interaction
+from .models import User, Item, UserPreference
 
 
 def get_recommendations_from_cache(user_id: int):
@@ -37,28 +37,31 @@ def build_preference_graph() -> nx.Graph:
     """
     G = nx.Graph()
 
-    # Добавляем узлы пользователей
+    # 1. Добавляем узлы пользователей
     users = User.objects.only('id', 'username').all()
     for user in users:
         G.add_node(f"user_{user.id}", type='user', label=user.username)
 
-    # Добавляем узлы элементов
+    # 2. Добавляем узлы элементов
     items = Item.objects.only('id', 'name').all()
     for item in items:
         G.add_node(f"item_{item.id}", type='item', label=item.name)
 
-    # Добавляем ребра взаимодействий
-    interactions = Interaction.objects.select_related('user', 'item').all()
-    for interaction in interactions:
-        user_node = f"user_{interaction.user.id}"
-        item_node = f"item_{interaction.item.id}"
-        # Можно добавить вес ребра в зависимости от interaction_type или его частоты
-        # Для простоты, пока вес 1
-        weight = 1
+    # 3. Добавляем ребра взаимодействий (Используем UserPreference)
+    # Используем select_related, чтобы не делать лишних запросов к БД в цикле
+    preferences = UserPreference.objects.select_related('user', 'item').all()
+
+    for pref in preferences:
+        user_node = f"user_{pref.user.id}"
+        item_node = f"item_{pref.item.id}"
+
+        # В качестве веса используем рейтинг (поле 'rating' из модели UserPreference)
+        weight = pref.rating if pref.rating else 1
+
         if G.has_edge(user_node, item_node):
             G[user_node][item_node]['weight'] += weight
         else:
-            G.add_edge(user_node, item_node, weight=weight, type=interaction.interaction_type)
+            G.add_edge(user_node, item_node, weight=weight)
 
     print(f"Graph built with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
     return G

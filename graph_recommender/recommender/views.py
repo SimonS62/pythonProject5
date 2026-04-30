@@ -12,7 +12,8 @@ from .algorithms import (
     cache_recommendations,
     get_pagerank_scores
 )
-from .models import User, Item, Interaction
+from django.contrib.auth.models import User
+from .models import UserPreference, Item
 
 # ОШИБКА БЫЛА ТУТ: Переменная не была определена
 REDIS_RECOMMENDATIONS_PREFIX = 'recommendations_'
@@ -21,44 +22,61 @@ REDIS_RECOMMENDATIONS_PREFIX = 'recommendations_'
 @require_GET
 def get_user_recommendations_api(request, user_id: int):
     """
-    API для получения рекомендаций для конкретного пользователя.
+    API для получения рекомендаций для конкретного пользователя с названиями элементов.
     """
     try:
-        user = User.objects.get(pk=user_id) # Используйте get() вместо get_object_or_404 если хотите свой ответ
+        user = User.objects.get(pk=user_id)
     except User.DoesNotExist:
         return JsonResponse({"error": f"User with id {user_id} not found"}, status=404)
 
-    # Проверяем кэш
-    cached_recs = get_recommendations_from_cache(user_id)
-    if cached_recs:
+    # 1. Сначала получаем список ID рекомендаций (из кэша или рассчитываем)
+    recommendations = get_recommendations_from_cache(user_id)
+
+    if recommendations:
         print(f"Recommendations for user {user_id} found in cache.")
-        return JsonResponse({"user_id": user_id, "recommendations": cached_recs})
     else:
-        print(f"Recommendations for user {user_id} not found in cache. Building graph and recommendations...")
-        # Построение графа может быть долгим.
-        # Если это долгая операция, рассмотрите ее запуск в Celery task.
+        print(f"Recommendations for user {user_id} not found in cache. Building graph...")
         try:
             graph = build_preference_graph()
             recommendations = get_recommendations(user_id, graph=graph)
-
-            # Кэшируем результат
+            # Кэшируем ID
             cache_recommendations(user_id, recommendations)
-            print(f"Recommendations generated and cached for user {user_id}.")
-            return JsonResponse({"user_id": user_id, "recommendations": recommendations})
         except Exception as e:
             print(f"Error generating recommendations for user {user_id}: {e}")
             return JsonResponse({"error": "Could not generate recommendations"}, status=500)
 
+    # 2. ТЕПЕРЬ формируем список имен для найденных рекомендаций
+    items_with_names = []
+    if recommendations:
+        for rec_id in recommendations:
+            try:
+                # Превращаем 'item_7' в '7' и ищем в базе
+                clean_id = str(rec_id).replace('item_', '')
+                item = Item.objects.get(id=clean_id)
+                items_with_names.append({"id": rec_id, "name": item.name})
+            except (Item.DoesNotExist, ValueError):
+                items_with_names.append({"id": rec_id, "name": f"Элемент #{rec_id}"})
 
-@csrf_exempt # В продакшене используйте Django-specific CSRFexempt или правильную обработку CSRF
+    # 3. Единственный финальный ответ (теперь сюда попадает всё)
+    return JsonResponse({
+        "user_id": user_id,
+        "recommendations": recommendations,
+        "items": items_with_names
+    })
+
+
+@csrf_exempt
 @require_POST
 def add_user_preference(request):
     """
     API для добавления или обновления взаимодействия пользователя с элементом.
     """
+    if request.method != 'POST':
+        return JsonResponse({"error": "Only POST requests are allowed"}, status=405)
+
     user_id = request.POST.get('user_id')
     item_id = request.POST.get('item_id')
-    interaction_type = request.POST.get('interaction_type', 'view') # По умолчанию "просмотр"
+    rating = request.POST.get('rating', 1)
 
     if not user_id or not item_id:
         return JsonResponse({"error": "user_id and item_id are required"}, status=400)
@@ -67,31 +85,25 @@ def add_user_preference(request):
         user = User.objects.get(pk=user_id)
         item = Item.objects.get(pk=item_id)
 
-        # Используем get_or_create для добавления нового взаимодействия или получения существующего
-        # Если нужно обновлять timestamp при каждом добавлении, используйте .update() внутри get_or_create
-        interaction, created = Interaction.objects.get_or_create(
+        # ИСПОЛЬЗУЕМ: update_or_create для обновления рейтинга и даты
+        interaction, created = UserPreference.objects.update_or_create(
             user=user,
             item=item,
-            interaction_type=interaction_type,
             defaults={
-                'timestamp': timezone.now()
+                'rating': rating,
+                'created_at': timezone.now()
             }
         )
 
-        # Если объект уже существовал, но мы хотим обновить timestamp
         if not created:
-            interaction.timestamp = timezone.now()
-            interaction.save()
-            print(f"Interaction updated for user {user_id}, item {item_id}, type {interaction_type}.")
+            print(f"Interaction updated for user {user_id}, item {item_id}.")
         else:
-            print(f"New interaction created for user {user_id}, item {item_id}, type {interaction_type}.")
+            print(f"New interaction created for user {user_id}, item {item_id}.")
 
-        # Очищаем кэш рекомендаций для этого пользователя, так как граф мог измениться
-        # Это важно для получения актуальных рекомендаций
+        # Очищаем кэш
         cache_key = f'{REDIS_RECOMMENDATIONS_PREFIX}{user_id}'
-        # r.delete(cache_key) # Если используете прямую redis-cli
-        cache.delete(cache_key) # Если используете Django cache
-        print(f"Cleared cache for user {user_id} due to new interaction.")
+        cache.delete(cache_key)
+        print(f"Cleared cache for user {user_id}.")
 
         return JsonResponse({"message": "Preference added/updated successfully", "created": created})
 
@@ -100,8 +112,8 @@ def add_user_preference(request):
     except Item.DoesNotExist:
         return JsonResponse({"error": f"Item with id {item_id} not found"}, status=404)
     except Exception as e:
-        print(f"An unexpected error occurred in add_user_preference: {e}")
-        return JsonResponse({"error": "An internal error occurred"}, status=500)
+        print(f"CRITICAL ERROR: {e}")
+        return JsonResponse({"error": str(e)}, status=500)
 
 
 @require_GET
@@ -187,7 +199,7 @@ def graph_stats_view(request):
         # Получить популярные элементы (например, по идентификатору, если нет лучшего поля)
         # Аннотируем количество взаимодействий, чтобы определить популярные элементы.
         popular_items = Item.objects.annotate(
-            num_interactions=Count('interaction') # Предполагается, что у Item есть обратная связь 'interaction'
+            num_interactions=Count('userpreference') # Предполагается, что у Item есть обратная связь 'interaction'
         ).order_by('-num_interactions').only('id', 'name', 'num_interactions')[:5]
 
         context = {
