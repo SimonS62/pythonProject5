@@ -44,9 +44,14 @@ class Command(BaseCommand):
 
         items = []
         for item_data in items_data:
+            category_val = item_data.get('category', 'Default')
+
             item, _ = Item.objects.get_or_create(
                 name=item_data['name'],
-                defaults=item_data
+                defaults={
+                    'category': category_val,
+                    'description': item_data.get('description', '')
+                }
             )
             items.append(item)
 

@@ -114,7 +114,7 @@ async function fetchRecommendations(userId) {
     `;
 
     try {
-        const response = await fetch(`/recommender/api/recommendations/${userId}/`);
+        const response = await fetch(`/api/recommendations/${userId}/`);
         const data = await response.json();
 
         if (!response.ok) {
