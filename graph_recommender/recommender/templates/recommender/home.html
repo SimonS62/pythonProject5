@@ -61,6 +61,38 @@
 </style>
 
 <script>
+// Функция для показа уведомлений (success, danger, info, warning)
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show mt-3`;
+    alertDiv.innerHTML = `
+        <strong>${type === 'success' ? '✅ Успешно!' : type === 'warning' ? '⚠️ Внимание!' : type === 'info' ? 'ℹ️ Информация:' : '❌ Ошибка!'}</strong> ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+
+    const container = document.querySelector('.container');
+    const recommendationsList = document.getElementById('recommendations-list');
+
+    // Безопасная вставка уведомления перед списком рекомендаций
+    if (container) {
+        if (recommendationsList && recommendationsList.parentNode === container) {
+            container.insertBefore(alertDiv, recommendationsList);
+        } else {
+            // Если список рекомендаций не найден, добавляем в конец контейнера
+            container.appendChild(alertDiv);
+        }
+    } else {
+         console.error("Container element not found!");
+         return;
+    }
+
+    // Автоматическое удаление через 3 секунды
+    setTimeout(() => {
+        if (alertDiv.parentNode) alertDiv.remove();
+    }, 3000);
+}
+
+// Обработчик отправки формы добавления предпочтений
 document.getElementById('preference-form').onsubmit = async function(e) {
     e.preventDefault();
     const formData = new FormData(this);
@@ -70,38 +102,43 @@ document.getElementById('preference-form').onsubmit = async function(e) {
             method: 'POST',
             body: formData,
             headers: {
-                'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+                'X-CSRFToken': formData.get('csrfmiddlewaretoken') // Важно для POST запросов в Django
             }
         });
         const result = await response.json();
 
         if (response.ok) {
             // Показываем сообщение об успехе
-            const alertDiv = document.createElement('div');
-            alertDiv.className = 'alert alert-success alert-dismissible fade show mt-3';
-            alertDiv.innerHTML = `
-                <strong>✅ Успешно!</strong> ${result.message || 'Предпочтение добавлено'}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            `;
-            document.querySelector('.container').insertBefore(alertDiv, document.getElementById('recommendations-list'));
+            showAlert(result.message || 'Предпочтение добавлено', 'success');
 
-            // Автоматически удаляем сообщение через 3 секунды
-            setTimeout(() => alertDiv.remove(), 3000);
-
-            // Обновляем рекомендации
+            // Обновляем рекомендации, если ID пользователя выбран
             const userId = document.getElementById('user-select').value;
-            fetchRecommendations(userId);
+            if (userId) {
+                fetchRecommendations(userId);
+            }
         } else {
-            alert("❌ Ошибка: " + (result.error || "Неизвестная ошибка"));
+            // Показываем сообщение об ошибке сервера
+            showAlert(result.error || "Неизвестная ошибка при добавлении предпочтения", 'danger');
         }
     } catch (error) {
         console.error("Error adding preference:", error);
-        alert("❌ Ошибка соединения с сервером");
+        // Показываем сообщение об ошибке соединения
+        showAlert("Ошибка соединения с сервером", 'danger');
     }
 };
 
+// Асинхронная функция для получения и отображения рекомендаций
 async function fetchRecommendations(userId) {
     const recommendationsDiv = document.getElementById('recommendations-list');
+    if (!recommendationsDiv) {
+        console.error("Recommendations list element not found!");
+        return;
+    }
+    const container = document.querySelector('.container');
+    if (!container) {
+        console.error("Container element not found!");
+        return;
+    }
 
     // Показываем индикатор загрузки
     recommendationsDiv.innerHTML = `
@@ -114,32 +151,35 @@ async function fetchRecommendations(userId) {
     `;
 
     try {
+        // Формируем корректный URL для API рекомендаций
         const response = await fetch(`/api/recommendations/${userId}/`);
         const data = await response.json();
 
+        // Если ответ сервера не OK, выбрасываем ошибку
         if (!response.ok) {
-            throw new Error(data.error || 'Ошибка сервера');
+            throw new Error(data.error || `Сервер вернул ошибку: ${response.status}`);
         }
 
-        recommendationsDiv.innerHTML = ''; // Очищаем
+        // Очищаем div перед вставкой новых данных
+        recommendationsDiv.innerHTML = '';
 
-        // Используем data.items (названия элементов)
+        // Проверяем, есть ли данные для отображения
         if (data.items && data.items.length > 0) {
-            // Заголовок
+            // Создаем заголовок для списка рекомендаций
             const title = document.createElement('h5');
             title.className = 'mb-3';
             title.textContent = `🎯 Рекомендовано для вас (${data.items.length}):`;
             recommendationsDiv.appendChild(title);
 
-            // Список
+            // Создаем неупорядоченный список
             const ul = document.createElement('ul');
             ul.className = 'list-group';
 
+           // Проходим по каждому элементу в списке рекомендаций
            data.items.forEach(item => {
                 const li = document.createElement('li');
                 li.className = 'list-group-item d-flex justify-content-between align-items-center';
-
-                // Исправлено: теперь берем item.name и item.id напрямую
+                // Вставляем название и ID элемента
                 li.innerHTML = `
                     <span>📌 <strong>${item.name}</strong></span>
                     <small class="text-muted">ID: ${item.id}</small>
@@ -149,14 +189,15 @@ async function fetchRecommendations(userId) {
 
             recommendationsDiv.appendChild(ul);
 
-            // Добавляем кнопку для обновления
+            // Добавляем кнопку для ручного обновления списка
             const refreshBtn = document.createElement('button');
             refreshBtn.className = 'btn btn-outline-secondary btn-sm mt-3';
             refreshBtn.innerHTML = '🔄 Обновить';
-            refreshBtn.onclick = () => fetchRecommendations(userId);
+            refreshBtn.onclick = () => fetchRecommendations(userId); // Повторный вызов функции
             recommendationsDiv.appendChild(refreshBtn);
 
         } else {
+            // Если рекомендаций нет
             recommendationsDiv.innerHTML = `
                 <div class="alert alert-info">
                     <strong>💡 Нет рекомендаций</strong><br>
@@ -165,27 +206,30 @@ async function fetchRecommendations(userId) {
             `;
         }
     } catch (error) {
-        recommendationsDiv.innerHTML = `
-            <div class="alert alert-danger">
-                <strong>❌ Ошибка загрузки</strong><br>
-                ${error.message}<br>
-                <small>Проверьте подключение к серверу и попробуйте снова.</small>
-            </div>
-        `;
+        // Обработка ошибок при загрузке рекомендаций
         console.error('Error fetching recommendations:', error);
+        showAlert(`Ошибка загрузки рекомендаций: ${error.message}`, 'danger');
+        // Очищаем div, чтобы уведомление об ошибке было видно
+        recommendationsDiv.innerHTML = '';
     }
 }
 
-// Автоматическая загрузка при выборе пользователя
+// Добавляем слушатель на изменение выбранного пользователя
 document.getElementById('user-select').addEventListener('change', function() {
-    fetchRecommendations(this.value);
+    const selectedUserId = this.value;
+    if (selectedUserId) {
+        fetchRecommendations(selectedUserId);
+    }
 });
 
-// Загрузка рекомендаций при загрузке страницы для первого пользователя
+// Загружаем рекомендации для первого пользователя при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
-    const initialUser = document.getElementById('user-select').value;
-    if (initialUser) {
-        fetchRecommendations(initialUser);
+    const initialUserSelect = document.getElementById('user-select');
+    if (initialUserSelect) {
+        const initialUserId = initialUserSelect.value;
+        if (initialUserId) {
+            fetchRecommendations(initialUserId);
+        }
     }
 });
 </script>

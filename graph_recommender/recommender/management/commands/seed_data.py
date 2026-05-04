@@ -49,8 +49,7 @@ class Command(BaseCommand):
             item, _ = Item.objects.get_or_create(
                 name=item_data['name'],
                 defaults={
-                    'category': category_val,
-                    'description': item_data.get('description', '')
+                    'category': category_val
                 }
             )
             items.append(item)
