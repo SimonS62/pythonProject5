@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.conf import settings
 
 
 class Item(models.Model):
@@ -23,3 +24,15 @@ class Recommendation(models.Model):
     item = models.ForeignKey(Item, on_delete=models.CASCADE)
     score = models.FloatField()
     created_at = models.DateTimeField(auto_now_add=True)
+
+class Interaction(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='interactions'
+    )
+    item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name='interactions')
+    timestamp = models.DateTimeField(auto_now_add=True)
+    interaction_type = models.CharField(max_length=50, default='view')
+def __str__(self):
+    return f"{self.user.username} interacted with {self.item.name} at {self.timestamp}"

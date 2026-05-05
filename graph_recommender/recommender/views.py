@@ -199,8 +199,8 @@ def graph_stats_view(request):
         # Получить популярные элементы (например, по идентификатору, если нет лучшего поля)
         # Аннотируем количество взаимодействий, чтобы определить популярные элементы.
         popular_items = Item.objects.annotate(
-            num_interactions=Count('userpreference') # Предполагается, что у Item есть обратная связь 'interaction'
-        ).order_by('-num_interactions').only('id', 'name', 'num_interactions')[:5]
+            num_interactions=Count('user_preferences')
+        ).order_by('-num_interactions')[:5]
 
         context = {
             "num_nodes": num_nodes,

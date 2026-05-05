@@ -1,17 +1,10 @@
 from celery import shared_task
 from django.utils import timezone
 from datetime import timedelta
-
 from . import models
+from .models import User, Interaction
+from .utils import send_inactivity_reminder_email, send_popular_items_email
 
-try:
-    from .models import User, Interaction
-    from .utils import send_inactivity_reminder_email, send_popular_items_email
-except ImportError as e:
-    print(f"Could not import necessary modules: {e}. Please ensure models and utils exist.")
-    User = None
-    Interaction = None
-    send_inactivity_reminder_email = None
 
 @shared_task
 def check_user_inactivity_task():
@@ -25,7 +18,7 @@ def check_user_inactivity_task():
     print("Starting check_user_inactivity_task...")
     now = timezone.now()
     inactivity_threshold_days = 30 # Пользователь считается неактивным, если не было взаимодействий за 30 дней
-    inactivity_threshold = timezone.now() - timedelta(daysInactivity_threshold_days)
+    inactivity_threshold = timezone.now() - timedelta(days=inactivity_threshold_days)
     users_reminded_count = 0
 
     # 1. Находим всех пользователей

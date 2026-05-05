@@ -13,8 +13,10 @@
 
     <h2>Топ узлов по PageRank:</h2>
     <ul>
-        {% for node, score in top_pagerank_nodes %}
-            <li>{{ node }}: {{ score|floatformat:4 }}</li>
+        {% for node_item in top_pagerank_nodes %}
+            <li>
+                {{ node_item.node }}: {{ node_item.score|floatformat:4 }}
+            </li>
         {% endfor %}
     </ul>
 
