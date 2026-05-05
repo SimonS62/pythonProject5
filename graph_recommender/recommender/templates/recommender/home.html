@@ -1,0 +1,236 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Главная{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <h1>Система рекомендаций</h1>
+    <p>Введите свои предпочтения, чтобы получить рекомендации.</p>
+
+    <form id="preference-form">
+        {% csrf_token %}
+        <div class="form-group">
+            <label for="user-select">Выберите пользователя:</label>
+            <select class="form-control" id="user-select" name="user_id">
+                {% for user in users %}
+                    <option value="{{ user.id }}">{{ user.username }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="item-select">Выберите элемент:</label>
+            <select class="form-control" id="item-select" name="item_id">
+                {% for item in items %}
+                    <option value="{{ item.id }}">{{ item.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="interaction-type">Тип взаимодействия:</label>
+            <select class="form-control" id="interaction-type" name="interaction_type">
+                <option value="view">Просмотр</option>
+                <option value="rate">Оценка</option>
+                <option value="purchase">Покупка</option>
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary mt-3">Добавить предпочтение</button>
+    </form>
+
+    <h2 class="mt-4">Ваши рекомендации:</h2>
+    <div id="recommendations-list">
+        <p>Выберите пользователя, чтобы увидеть рекомендации.</p>
+    </div>
+</div>
+
+<style>
+    #recommendations-list {
+        min-height: 100px;
+    }
+    .list-group-item {
+        transition: all 0.3s ease;
+    }
+    .list-group-item:hover {
+        background-color: #f8f9fa;
+        transform: translateX(5px);
+    }
+    .spinner-border {
+        display: block;
+        margin: 20px auto;
+    }
+</style>
+
+<script>
+// Функция для показа уведомлений (success, danger, info, warning)
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show mt-3`;
+    alertDiv.innerHTML = `
+        <strong>${type === 'success' ? '✅ Успешно!' : type === 'warning' ? '⚠️ Внимание!' : type === 'info' ? 'ℹ️ Информация:' : '❌ Ошибка!'}</strong> ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+
+    const container = document.querySelector('.container');
+    const recommendationsList = document.getElementById('recommendations-list');
+
+    // Безопасная вставка уведомления перед списком рекомендаций
+    if (container) {
+        if (recommendationsList && recommendationsList.parentNode === container) {
+            container.insertBefore(alertDiv, recommendationsList);
+        } else {
+            // Если список рекомендаций не найден, добавляем в конец контейнера
+            container.appendChild(alertDiv);
+        }
+    } else {
+         console.error("Container element not found!");
+         return;
+    }
+
+    // Автоматическое удаление через 3 секунды
+    setTimeout(() => {
+        if (alertDiv.parentNode) alertDiv.remove();
+    }, 3000);
+}
+
+// Обработчик отправки формы добавления предпочтений
+document.getElementById('preference-form').onsubmit = async function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+
+    try {
+        const response = await fetch("{% url 'api_add_preference' %}", {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRFToken': formData.get('csrfmiddlewaretoken') // Важно для POST запросов в Django
+            }
+        });
+        const result = await response.json();
+
+        if (response.ok) {
+            // Показываем сообщение об успехе
+            showAlert(result.message || 'Предпочтение добавлено', 'success');
+
+            // Обновляем рекомендации, если ID пользователя выбран
+            const userId = document.getElementById('user-select').value;
+            if (userId) {
+                fetchRecommendations(userId);
+            }
+        } else {
+            // Показываем сообщение об ошибке сервера
+            showAlert(result.error || "Неизвестная ошибка при добавлении предпочтения", 'danger');
+        }
+    } catch (error) {
+        console.error("Error adding preference:", error);
+        // Показываем сообщение об ошибке соединения
+        showAlert("Ошибка соединения с сервером", 'danger');
+    }
+};
+
+// Асинхронная функция для получения и отображения рекомендаций
+async function fetchRecommendations(userId) {
+    const recommendationsDiv = document.getElementById('recommendations-list');
+    if (!recommendationsDiv) {
+        console.error("Recommendations list element not found!");
+        return;
+    }
+    const container = document.querySelector('.container');
+    if (!container) {
+        console.error("Container element not found!");
+        return;
+    }
+
+    // Показываем индикатор загрузки
+    recommendationsDiv.innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-2 text-muted">Загружаем рекомендации...</p>
+        </div>
+    `;
+
+    try {
+        // Формируем корректный URL для API рекомендаций
+        const response = await fetch(`/api/recommendations/${userId}/`);
+        const data = await response.json();
+
+        // Если ответ сервера не OK, выбрасываем ошибку
+        if (!response.ok) {
+            throw new Error(data.error || `Сервер вернул ошибку: ${response.status}`);
+        }
+
+        // Очищаем div перед вставкой новых данных
+        recommendationsDiv.innerHTML = '';
+
+        // Проверяем, есть ли данные для отображения
+        if (data.items && data.items.length > 0) {
+            // Создаем заголовок для списка рекомендаций
+            const title = document.createElement('h5');
+            title.className = 'mb-3';
+            title.textContent = `🎯 Рекомендовано для вас (${data.items.length}):`;
+            recommendationsDiv.appendChild(title);
+
+            // Создаем неупорядоченный список
+            const ul = document.createElement('ul');
+            ul.className = 'list-group';
+
+           // Проходим по каждому элементу в списке рекомендаций
+           data.items.forEach(item => {
+                const li = document.createElement('li');
+                li.className = 'list-group-item d-flex justify-content-between align-items-center';
+                // Вставляем название и ID элемента
+                li.innerHTML = `
+                    <span>📌 <strong>${item.name}</strong></span>
+                    <small class="text-muted">ID: ${item.id}</small>
+                `;
+                ul.appendChild(li);
+            });
+
+            recommendationsDiv.appendChild(ul);
+
+            // Добавляем кнопку для ручного обновления списка
+            const refreshBtn = document.createElement('button');
+            refreshBtn.className = 'btn btn-outline-secondary btn-sm mt-3';
+            refreshBtn.innerHTML = '🔄 Обновить';
+            refreshBtn.onclick = () => fetchRecommendations(userId); // Повторный вызов функции
+            recommendationsDiv.appendChild(refreshBtn);
+
+        } else {
+            // Если рекомендаций нет
+            recommendationsDiv.innerHTML = `
+                <div class="alert alert-info">
+                    <strong>💡 Нет рекомендаций</strong><br>
+                    Попробуйте добавить больше взаимодействий с элементами для получения персонализированных рекомендаций.
+                </div>
+            `;
+        }
+    } catch (error) {
+        // Обработка ошибок при загрузке рекомендаций
+        console.error('Error fetching recommendations:', error);
+        showAlert(`Ошибка загрузки рекомендаций: ${error.message}`, 'danger');
+        // Очищаем div, чтобы уведомление об ошибке было видно
+        recommendationsDiv.innerHTML = '';
+    }
+}
+
+// Добавляем слушатель на изменение выбранного пользователя
+document.getElementById('user-select').addEventListener('change', function() {
+    const selectedUserId = this.value;
+    if (selectedUserId) {
+        fetchRecommendations(selectedUserId);
+    }
+});
+
+// Загружаем рекомендации для первого пользователя при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    const initialUserSelect = document.getElementById('user-select');
+    if (initialUserSelect) {
+        const initialUserId = initialUserSelect.value;
+        if (initialUserId) {
+            fetchRecommendations(initialUserId);
+        }
+    }
+});
+</script>
+{% endblock %}

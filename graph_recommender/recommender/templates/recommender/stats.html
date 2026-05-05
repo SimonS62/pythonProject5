@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Статистика{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <h1>Статистика системы</h1>
+
+    <h2>Основные метрики графа:</h2>
+    <p><strong>Количество узлов:</strong> {{ num_nodes }}</p>
+    <p><strong>Количество ребер:</strong> {{ num_edges }}</p>
+
+    <h2>Топ узлов по PageRank:</h2>
+    <ul>
+        {% for node_item in top_pagerank_nodes %}
+            <li>
+                {{ node_item.node }}: {{ node_item.score|floatformat:4 }}
+            </li>
+        {% endfor %}
+    </ul>
+
+    <h2>Топ популярных элементов:</h2>
+    <ul>
+        {% for item in popular_items %}
+            <li>{{ item.name }} ( {{ item.num_interactions }} взаимодействий)</li>
+        {% endfor %}
+    </ul>
+</div>
+{% endblock %}
